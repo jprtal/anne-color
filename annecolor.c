@@ -1,4 +1,4 @@
-#include <libusb-1.0/libusb.h>
+#include <hidapi/hidapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,7 +45,7 @@ int main(int argc, char const *argv[]) {
     }
   }
 
-  if (status > 0) {
+  if (status == 1) {
     fprintf(stderr, "Usage: %s effect color...\n", argv[0]);
   }
 
@@ -53,26 +53,27 @@ int main(int argc, char const *argv[]) {
 }
 
 int set_static(const char *channels[]) {
-  unsigned char data[15] = {0x7b, 0x10, 0x41, 0x10, 0x07, 0x00, 0x00, 0x7d,
-                            0x20, 0x03, 0xff, 0x01, 0xff, 0xff, 0xff};
+  unsigned char data[] = {0x00, 0x7b, 0x10, 0x41, 0x10, 0x07, 0x00, 0x00,
+                          0x7d, 0x20, 0x03, 0xff, 0x01, 0xff, 0xff, 0xff};
 
-  data[12] = strtoul(channels[0], NULL, 10);
-  data[13] = strtoul(channels[1], NULL, 10);
-  data[14] = strtoul(channels[2], NULL, 10);
+  data[13] = strtoul(channels[0], NULL, 10);
+  data[14] = strtoul(channels[1], NULL, 10);
+  data[15] = strtoul(channels[2], NULL, 10);
 
-  return write_data(data, 15);
+  return write_data(data, 16);
 }
 
 int set_effect(unsigned char effect, const char *colors[]) {
-  unsigned char data[] = {
-      0x7b, 0x10, 0x41, 0x10, 0x28, 0x00, 0x00, 0x7d, 0x20, 0x03, 0xff, 0x06,
-      0xff, 0x00, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0x00, 0x80, 0xff, 0x00,
-      0x00, 0xff, 0x00, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0x00, 0x80, 0xff,
-      0x00, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0x00, 0xff, 0xff, 0x00, 0x80};
+  unsigned char data[] = {0x00, 0x7b, 0x10, 0x41, 0x10, 0x28, 0x00, 0x00, 0x7d,
+                          0x20, 0x03, 0xff, 0x06, 0xff, 0x00, 0x00, 0xff, 0x80,
+                          0x00, 0xff, 0xff, 0x00, 0x80, 0xff, 0x00, 0x00, 0xff,
+                          0x00, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0x00, 0x80,
+                          0xff, 0x00, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0x00,
+                          0xff, 0xff, 0x00, 0x80};
 
-  data[11] = effect;
+  data[12] = effect;
 
-  size_t pos = 12;
+  size_t pos = 13;
   for (size_t i = 0; i < 12; i++) {
     int r, g, b;
     sscanf(colors[i], "%02x%02x%02x", &r, &g, &b);
@@ -84,53 +85,66 @@ int set_effect(unsigned char effect, const char *colors[]) {
     pos += 2;
   }
 
-  return write_data(data, 48);
+  return write_data(data, 49);
 }
 
 int write_data(unsigned char *data, int length) {
-  struct libusb_context *ctx = NULL;
-  struct libusb_device_handle *dev_handle = NULL;
+  struct hid_device_info *devs, *cur_dev;
+  hid_device *handle;
+  char *device_path = NULL;
   int status = 0;
   int res;
 
-  res = libusb_init(&ctx);
-  if (res != LIBUSB_SUCCESS) {
-    fprintf(stderr, "Failed to init libusb: %d\n", res);
-    return -2;
-  }
-
-  dev_handle = libusb_open_device_with_vid_pid(ctx, VENDOR_ID, PRODUCT_ID);
-  if (dev_handle == NULL) {
-    fprintf(stderr, "Could not find a known device\n");
-    status = -3;
+  devs = hid_enumerate(VENDOR_ID, PRODUCT_ID);
+  if (devs == NULL) {
+    fprintf(stderr, "Failed to enumerate HID devices\n");
+    status = 3;
     goto exit;
   }
 
-  libusb_set_auto_detach_kernel_driver(dev_handle, 1);
+  cur_dev = devs;
+  while (cur_dev) {
+    if (cur_dev->interface_number == INTERFACE) {
+      device_path = cur_dev->path;
+      break;
+    }
+    cur_dev = cur_dev->next;
+  }
 
-  res = libusb_claim_interface(dev_handle, INTERFACE);
+  if (device_path == NULL) {
+    fprintf(stderr, "Could not find a known device\n");
+    status = 4;
+
+    hid_free_enumeration(devs);
+    goto exit;
+  }
+
+  handle = hid_open_path(device_path);
+  hid_free_enumeration(devs);
+  cur_dev = NULL;
+
+  if (handle == NULL) {
+    fprintf(stderr, "Could not open the device\n");
+    status = 5;
+    goto exit;
+  }
+
+  res = hid_write(handle, data, length);
   if (res < 0) {
-    fprintf(stderr, "Could not claim desired interface for the device\n");
-    status = -4;
+    fprintf(stderr, "Could not write data to device\n");
+    status = 6;
     goto close;
   }
 
-  res = libusb_interrupt_transfer(dev_handle, ENDPOINT_OUT, data, length, NULL,
-                                  0);
-  if (res < 0) {
-    fprintf(stderr, "Could not write data to device\n");
-    status = -5;
-    goto release;
-  }
-
-release:
-  libusb_release_interface(dev_handle, INTERFACE);
-
 close:
-  libusb_close(dev_handle);
+  hid_close(handle);
 
 exit:
-  libusb_exit(ctx);
+  res = hid_exit();
+  if (res < 0) {
+    fprintf(stderr, "HIDAPI exit failure\n");
+    status = 7;
+  }
 
   return status;
 }

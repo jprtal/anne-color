@@ -1,5 +1,5 @@
 CC ?= gcc
-LDLIBS = -lusb-1.0
+LDLIBS = -lhidapi-hidraw
 
 prefix ?= /usr/local
 exec_prefix = $(prefix)
