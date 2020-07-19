@@ -1,0 +1,7 @@
+#compdef annecolor
+
+function _annecolor() {
+    _arguments '1:effects:(static breathing breathing-key breathing-trigger gradual-breathing poptang rainbow rainbow-trigger)'
+}
+
+_annecolor "$@"

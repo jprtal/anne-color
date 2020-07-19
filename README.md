@@ -22,6 +22,7 @@ Available effects:
 
 ## Requirements
 - [`hidapi`](https://github.com/libusb/hidapi#about)
+- [`_annecolor`](_annecolor) for Zsh completions
 - In order to make the keyboard accesible without root privileges you need to create a new [udev rule](https://aur.archlinux.org/cgit/aur.git/tree/obinskit.install?h=obinskit).
 ```
 SUBSYSTEM=="usb", ATTRS{idVendor}=="04d9", ATTRS{idProduct}=="a292",MODE="0666", GROUP="plugdev"
